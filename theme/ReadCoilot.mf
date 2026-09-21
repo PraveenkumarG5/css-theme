@@ -1,3 +1,20 @@
+
+Context: Maven project (looks like Spring Boot 3.5.x; confirm from the pom). Nexus IQ flagged:
+1. org.apache.logging.log4j:log4j-api:2.26.1 (transitive), sonatype-2026-006746, no fixed release exists
+2. org.hibernate.orm:hibernate-core:6.6.57.Final (direct), CVE-2026-77874 (CVSS 7.1). Fixed-in: <PASTE FROM NEXUS>
+3. Component-Unknown on micrometer-*-1.15.13, reactor-core-3.7.20 and our own app jar
+
+Do this, in order:
+a) Run `mvn dependency:tree -Dincludes=org.apache.logging.log4j`. Tell me which dependency brings in log4j-api, and whether our code uses Log4j directly or receives serialized Log4j events. Don't change the version.
+b) Find where hibernate-core's version is set (parent BOM, property or explicit pin) and make the smallest change to reach <FIXED VERSION>, e.g. override `hibernate.version`. If it needs Hibernate 7.x, don't apply it; list the breaking changes instead (Java 17, Jakarta Persistence 3.2, Spring compatibility).
+c) Check how Nexus IQ is invoked (Maven plugin vs CLI on the packaged jar) and suggest a change so dependencies resolve by Maven coordinates.
+
+Rules: minimal diffs, no unrelated upgrades, run `mvn clean verify` afterwards. Finish with a summary of what changed and what I still must handle in Nexus (waivers, policy).
+
+
+
+
+
 Now perform the FINAL TECHNICAL VALIDATION before we make any waiver decisions.
 
 IMPORTANT:
