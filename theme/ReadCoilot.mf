@@ -1,0 +1,106 @@
+Proceed to the next remediation phase, but do NOT make any speculative dependency changes.
+
+Important:
+Spring Boot MUST remain exactly 3.5.16.
+
+Based on the Sonatype IQ analysis you have already completed:
+
+1. Log4j 2.26.1
+   - Keep the current version.
+   - Do not change the dependency.
+   - The repository analysis found no reachable Log4j deserialization/network-receiver path.
+   - Update the remediation documentation with the evidence supporting this conclusion.
+   - Classify this as a Sonatype IQ waiver candidate.
+
+2. HdrHistogram 2.2.2
+   - Keep the current version.
+   - Do not downgrade.
+   - It is transitive through Micrometer and no direct application usage was found.
+   - Document this as a waiver candidate.
+
+3. LatencyUtils 2.0.3
+   - Keep the current version.
+   - Do not downgrade.
+   - It is transitive through Micrometer and no direct application usage was found.
+   - Document this as a waiver candidate.
+
+4. Jackson databind 2.22.2
+   - DO NOT upgrade to 2.22.3 unless you independently verify that 2.22.3 is officially released and available from the configured Maven repositories.
+   - The reported findings are:
+       CVE-2026-91776
+       CVE-2026-91777
+   - Determine the latest officially released fixed version that is compatible with Spring Boot 3.5.16.
+   - If no officially released compatible fixed version exists, DO NOT change Jackson.
+   - Instead classify this as requiring a temporary Sonatype IQ waiver/exception.
+   - Show me the evidence before making any Jackson change.
+
+5. Flyway 11.20.3
+   - Do NOT remove Flyway.
+   - Do NOT upgrade to an arbitrary version.
+   - Do NOT change Flyway major version.
+   - Analyze sonatype-2026-002508.
+   - Determine whether an officially released fixed version exists.
+   - Check compatibility with Spring Boot 3.5.16.
+   - Because Flyway migration assets exist and runtime behavior depends on the configuration, do not change/remove Flyway without confirming the impact.
+   - If a safe fixed version exists, present the exact version and compatibility evidence before changing it.
+   - Otherwise classify it as requiring user approval/waiver.
+
+6. H2 2.5.250
+   - Do NOT downgrade H2.
+   - Do NOT remove H2.
+   - The repository currently uses H2 as the configured/default datasource.
+   - First determine exactly why Sonatype reports sonatype-2018-0613 against H2 2.5.250.
+   - Determine whether H2 is used during tests, runtime, or both.
+   - Determine whether changing its scope or version would alter application behavior.
+   - If there is a confirmed compatible fixed version, show it to me first.
+   - Otherwise classify it as requiring user approval/waiver.
+
+7. Hibernate
+   - Verify whether the previously identified Hibernate vulnerability has already been remediated.
+   - If it is still 6.6.53.Final, upgrade to the confirmed compatible fixed 6.6.57.Final.
+   - Do not upgrade Hibernate to 7.x.
+   - Keep Spring Boot at 3.5.16.
+
+8. Netty
+   - Verify that all Netty modules resolve consistently to the approved 4.1.138.Final baseline.
+   - Do not blindly upgrade further.
+   - If Sonatype still reports 4.1.138.Final, investigate why rather than changing the version speculatively.
+
+After this analysis:
+
+A. Make ONLY changes that are confirmed safe and compatible.
+
+B. Do NOT make any change requiring my approval.
+
+C. If a decision is required, stop and present me with a table:
+
+| Component | Current Version | Finding | Proposed Version/Action | Compatibility | Risk | Decision Required |
+
+D. For every remaining finding, classify it as:
+
+- FIXED
+- WAIVER CANDIDATE
+- NEEDS USER APPROVAL
+- LICENSE/POLICY
+- COMPONENT UNKNOWN
+- NOT APPLICABLE
+
+E. Run:
+
+mvn clean verify
+
+and:
+
+mvn dependency:tree
+
+after any actual dependency changes.
+
+F. Produce an updated:
+docs/nexus/sonatype_iq_remediation_status_2026-09-21.md
+
+with the final status.
+
+IMPORTANT:
+Do not claim the Sonatype IQ issues are fixed merely because the remediation-status Markdown file was created.
+
+I need the actual Maven/source/configuration changes and validation results clearly separated from waiver/approval recommendations.
