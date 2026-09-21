@@ -1,3 +1,64 @@
+Now perform the FINAL TECHNICAL VALIDATION before we make any waiver decisions.
+
+IMPORTANT:
+Spring Boot MUST remain exactly 3.5.16.
+
+Do not make any additional speculative dependency changes.
+
+The remediation analysis says these two changes were implemented:
+
+1. Hibernate ORM
+   6.6.53.Final -> 6.6.57.Final
+
+2. Netty
+   aligned to 4.1.138.Final
+
+First inspect the git diff and confirm exactly what changed.
+
+Then run:
+
+mvn clean verify
+
+After that run:
+
+mvn dependency:tree -Dincludes=org.hibernate.orm
+
+mvn dependency:tree -Dincludes=org.hibernate
+
+mvn dependency:tree -Dincludes=io.netty
+
+Also run:
+
+mvn dependency:tree > dependency-tree-after-remediation.txt
+
+Verify:
+
+1. Spring Boot is still exactly 3.5.16.
+2. Hibernate 6.6.57.Final is actually resolved.
+3. Hibernate 6.6.53.Final is no longer resolved.
+4. All relevant Netty modules are aligned to 4.1.138.Final.
+5. No unexpected Hibernate or Netty versions remain.
+6. Maven build succeeds.
+7. Tests succeed.
+
+Do NOT modify pom.xml unless the validation discovers that the intended Hibernate/Netty changes were not actually applied.
+
+Then provide:
+
+A. Git diff
+B. Maven build result
+C. Hibernate dependency tree
+D. Netty dependency tree
+E. Spring Boot version verification
+F. Any test failures
+G. Final list of remaining Sonatype findings
+
+Do not claim Hibernate or Netty is fixed merely because the version appears in pom.xml. Confirm the resolved dependency tree.
+
+
+
+
+
 Proceed to the next remediation phase, but do NOT make any speculative dependency changes.
 
 Important:
