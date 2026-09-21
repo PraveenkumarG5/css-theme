@@ -104,3 +104,137 @@ IMPORTANT:
 Do not claim the Sonatype IQ issues are fixed merely because the remediation-status Markdown file was created.
 
 I need the actual Maven/source/configuration changes and validation results clearly separated from waiver/approval recommendations.
+
+Good. The classification is accepted as the current remediation assessment.
+
+Now move to the IMPLEMENTATION AND VALIDATION phase.
+
+IMPORTANT:
+Spring Boot MUST remain exactly 3.5.16.
+Do not change Spring Boot under any circumstances.
+
+1. First inspect the current git diff.
+
+2. Verify whether:
+   org.hibernate.orm:hibernate-core
+
+has actually been changed to:
+
+   6.6.57.Final
+
+If it is still 6.6.53.Final, update it to 6.6.57.Final.
+
+Do NOT upgrade Hibernate to 7.x.
+
+3. Inspect all explicitly versioned Hibernate ORM dependencies and ensure there is no incompatible mixture of Hibernate ORM versions.
+
+4. Run:
+
+   mvn dependency:tree -Dincludes=org.hibernate.orm
+
+and:
+
+   mvn dependency:tree -Dincludes=org.hibernate
+
+Confirm the resolved Hibernate versions.
+
+5. Run:
+
+   mvn dependency:tree -Dincludes=io.netty
+
+Confirm whether all relevant Netty modules resolve to the intended 4.1.138.Final baseline.
+
+Do NOT blindly upgrade Netty further.
+
+6. Run:
+
+   mvn dependency:tree -Dincludes=com.fasterxml.jackson
+
+Confirm the exact Jackson versions currently resolved.
+
+For Jackson:
+- Do NOT change to an unreleased version.
+- Do NOT invent a fixed version.
+- If no officially released compatible fixed version is available, leave the dependency unchanged and classify the finding as temporary waiver/exception required.
+
+7. Run:
+
+   mvn dependency:tree -Dincludes=org.flywaydb
+
+Confirm the exact Flyway dependency path and version.
+
+Do NOT remove Flyway.
+Do NOT change its major version.
+Do NOT upgrade it speculatively.
+
+8. Run:
+
+   mvn dependency:tree -Dincludes=com.h2database:h2
+
+Do NOT change H2 scope.
+Do NOT remove H2.
+Do NOT downgrade H2.
+
+The application currently uses H2 as the configured/default datasource, so changing its scope or removing it could change runtime behavior.
+
+9. Run:
+
+   mvn dependency:tree -Dincludes=org.hdrhistogram:HdrHistogram
+
+and:
+
+   mvn dependency:tree -Dincludes=org.latencyutils:LatencyUtils
+
+Do not downgrade either dependency.
+
+10. Run:
+
+   mvn clean verify
+
+Record the complete result.
+
+11. If the build succeeds, generate a final dependency tree:
+
+   mvn dependency:tree > dependency-tree-after-remediation.txt
+
+12. Update:
+
+   docs/nexus/sonatype_iq_remediation_status_2026-09-21.md
+
+with:
+
+- Actual dependency changes made
+- Actual versions before/after
+- Maven validation result
+- Remaining Sonatype findings
+- Waiver candidates
+- Findings requiring user approval
+- License findings
+- Component-Unknown findings
+- Any unresolved security vulnerabilities
+
+13. IMPORTANT:
+Do not claim that a finding is "fixed" merely because it has been classified as a waiver candidate.
+
+Use these statuses precisely:
+
+FIXED
+WAIVER CANDIDATE
+TEMPORARY WAIVER REQUIRED
+NEEDS USER APPROVAL
+NOT APPLICABLE
+LICENSE/POLICY
+COMPONENT UNKNOWN
+UNRESOLVED SECURITY FINDING
+
+14. At the end, show me:
+
+A. Git diff
+B. Dependency versions before/after
+C. Maven dependency-tree results
+D. mvn clean verify result
+E. Remaining Sonatype findings
+F. Exact actions required from me
+
+Do not make speculative dependency changes.
+
