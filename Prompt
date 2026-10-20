@@ -1,0 +1,240 @@
+GitHub Copilot Investigation Prompt: Azure ADLS Stale Input During Spring Batch Job Execution
+
+Objective
+
+Investigate and fix an issue where a Spring Batch job reads stale or unexpected file content from Azure Data Lake Storage (ADLS) when a ".dat" file is overwritten at the same path.
+
+The application reads files directly from ADLS using a custom ADLS-backed "Resource" and Spring Batch "FlatFileItemReader". The file is not downloaded to a local temporary file.
+
+Do not assume the root cause is caching or checkpointing. Inspect the actual implementation and prove the cause using code-path analysis and tests.
+
+1. Technical context
+
+- Storage: Azure Data Lake Storage Gen2.
+- Input: ".dat" files.
+- Reader: Spring Batch "FlatFileItemReader".
+- Input access: Direct ADLS stream; no local temporary file.
+- Input records: Fixed-width or delimited records containing numeric fields.
+- Invalid input example: A numeric field contains alphabetic characters instead of a valid number.
+- Job launch mechanism: A scheduler or controller can start a job and restart a failed execution using its execution ID.
+- Expected behavior: Invalid numeric data must cause the job to fail unless an explicit, documented business rule allows otherwise.
+- Restart requirement: Preserve Spring Batch checkpointing, restartability, and transactional correctness.
+
+2. Reproduce and analyze both scenarios
+
+Scenario A — Unexpected behavior
+
+1. Upload a valid ".dat" file to ADLS at path "input/path/file.dat".
+2. Start the job and allow it to complete successfully.
+3. Overwrite the same ADLS path with a corrupted file. Change a numeric field to a nonnumeric string.
+4. Start the job again using the same input path.
+5. Actual result: The job succeeds unexpectedly.
+6. Expected result: The job fails when it reads the corrupted numeric field.
+
+Scenario B — Expected behavior
+
+1. Upload a corrupted ".dat" file to ADLS.
+2. Start the job.
+3. The job fails on the invalid numeric field.
+4. Correct the numeric field in ADLS Explorer, retaining the same path.
+5. Restart the failed execution using its execution ID.
+6. Actual result: The job succeeds.
+
+Additional comparison
+
+1. Upload the corrupted file under a different filename.
+2. Start a new job using the new path.
+3. The job fails as expected.
+
+Determine why the behavior differs between these scenarios.
+
+3. Inspect the entire input-processing lifecycle
+
+Trace the flow from the scheduler/controller to the actual record parser.
+
+Inspect the following components and their callers:
+
+- Job start and restart endpoints.
+- Job execution ID and JobInstance resolution.
+- JobParameters creation and identifying parameters.
+- JobRepository and ExecutionContext usage.
+- Job and step configuration.
+- "FlatFileItemReader" bean scope and lifecycle.
+- Custom ADLS "Resource" implementation.
+- "Resource.getInputStream()" implementation.
+- "DataLakeFileClient" creation and reuse.
+- "openInputStream()" invocation and stream lifecycle.
+- "LineMapper", "FieldSetMapper", converters, and custom parsing logic.
+- Numeric-field validation and exception handling.
+- Skip policies, retry policies, fault-tolerant configuration, and listeners.
+- Any shared singleton, cached resource, cached stream, or reused reader.
+- ADLS upload and overwrite behavior.
+- Chunk boundaries, committed records, and restart checkpoints.
+- Output-writing, idempotency, and transaction behavior.
+
+Search the repository for "FlatFileItemReader", "ItemReader", "Resource", "openInputStream", "DataLakeFileClient", "ExecutionContext", "ExecutionContextUserSupport", "JobOperator", "JobLauncher", "JobParameters", "executionId", "restart", "LineMapper", "FieldSetMapper", and numeric conversion logic.
+
+Do not stop at the first suspicious class. Trace the actual runtime wiring and determine which implementation the job uses.
+
+4. Investigate these hypotheses
+
+Evaluate each hypothesis and classify it as confirmed, rejected, or unproven.
+
+A. Stale ADLS stream or resource
+
+- Is an "InputStream" created once and retained in a singleton or reusable object?
+- Does "Resource.getInputStream()" return a previously opened stream?
+- Is the ADLS client reused safely while the stream is reused incorrectly?
+- Does each new step execution open a fresh stream?
+- Can a previously opened stream continue reading an earlier file version?
+
+B. ADLS overwrite and file version
+
+- Does the upload operation actually replace the file at the expected path?
+- Does the ETag change after overwrite?
+- Does the job open the correct filesystem, directory, and filename?
+- Does the reader receive the current file content?
+- Is any conditional request, version ID, cache, or stale metadata involved?
+
+C. Spring Batch checkpoint and restart behavior
+
+- Is Scenario A creating a genuinely new JobInstance or attempting to reuse an existing one?
+- Which JobParameters are identifying?
+- Is the previous execution completed, failed, or abandoned?
+- Which reader position is saved in the ExecutionContext?
+- Does the reader resume from a checkpoint that bypasses the corrupted record?
+- Does the restart recreate the reader and reopen the ADLS stream?
+- Does the reader's saved state interact with the current file content?
+
+Do not claim that checkpointing alone explains Scenario A without evidence. A new JobInstance should normally read the current input content.
+
+D. Parsing and error handling
+
+- Does the numeric conversion actually execute for the corrupted field?
+- Is the value trimmed, defaulted, coerced, or converted to null?
+- Is a parsing exception thrown and then skipped or suppressed?
+- Does a custom mapper silently accept invalid values?
+- Is the corrupted field at the correct offset according to the copybook or file layout?
+
+E. Concurrent execution and output reuse
+
+- Can two executions overlap on the same input?
+- Are shared mutable readers or resources used?
+- Does the job report success while processing zero records or using stale output?
+- Are old output files or completion markers causing the job to skip processing?
+
+5. Add diagnostic logging
+
+Recommend and implement appropriately scoped logs around file resolution, reader initialization, stream opening, and record parsing.
+
+Capture:
+
+- Job name, JobInstance ID, JobExecution ID, StepExecution ID.
+- Restart status and relevant identifying JobParameters.
+- Fully resolved ADLS filesystem and path.
+- ADLS ETag, content length, and last-modified timestamp immediately before reading.
+- ETag or version observed when the stream is opened, where available.
+- Reader instance identity and resource description.
+- Reader checkpoint/line number before and after processing.
+- Actual value of the problematic numeric field, masking sensitive data where necessary.
+- Exception type and complete relevant stack trace.
+- Read, write, skip, rollback, and commit counts.
+
+Never log credentials, SAS tokens, access keys, or other secrets.
+
+Avoid logging entire financial or sensitive records.
+
+Use the existing logging framework and conventions.
+
+6. Implement the correct fix
+
+After confirming the root cause, make the smallest safe change.
+
+Requirements:
+
+1. Ensure each new step execution opens a fresh ADLS input stream.
+2. Ensure "FlatFileItemReader" and its resource have correct bean scope and lifecycle.
+3. Ensure numeric conversion rejects malformed input.
+4. Ensure parsing exceptions are not silently swallowed or skipped unless explicitly required by existing business rules.
+5. Preserve legitimate Spring Batch restart behavior and saved checkpoints.
+6. Do not disable "saveState" merely to force rereading.
+7. Do not reset checkpoints blindly.
+8. Prevent a failed execution from silently resuming against changed input content.
+9. If input immutability is required, record the original input ETag or content fingerprint durably and validate it on restart.
+10. Prefer immutable or versioned input paths for production execution.
+11. If the input changes, fail fast with a clear error such as "INPUT_FILE_CHANGED_DURING_RESTART".
+12. Ensure the actual stream is protected against a concurrent overwrite where the Azure SDK supports conditional reads using the expected ETag.
+13. If a corrected file must be processed as a new input version, use an appropriate new JobInstance rather than corrupting restart semantics.
+14. Maintain existing database transaction boundaries, output consistency, and idempotency.
+
+Do not add unnecessary dependencies or change Spring Boot or Spring Batch versions.
+
+Check the project's actual Azure SDK version before writing code. Use the correct available API signatures.
+
+7. Write regression tests
+
+Add automated tests for both reported scenarios and the relevant edge cases.
+
+Test A — Valid file overwritten with corrupted content
+
+- Process the valid input successfully.
+- Overwrite the same ADLS path with corrupted content.
+- Launch a new job instance.
+- Verify that the job reads the current content and fails on the invalid numeric field.
+- Verify that the failure is not caused by an unrelated ADLS or configuration error.
+
+Test B — Corrupt input corrected after failure
+
+- Start with corrupted input and verify the job fails.
+- Correct the input at the same path.
+- Verify that the configured input-version policy behaves as intended.
+- Under immutable-input enforcement, verify that restarting against a changed ETag is rejected and the corrected version must be processed as a new JobInstance.
+- If the application explicitly supports in-place correction and restart, verify that behavior separately and ensure it cannot silently skip records or duplicate output.
+
+Test C — New filename containing corrupted input
+
+- Upload corrupted content under a new path.
+- Verify that parsing fails.
+
+Test D — Same unchanged input restarted
+
+- Force a failure after at least one chunk commits.
+- Restart using the original, unchanged input.
+- Verify that Spring Batch resumes from its checkpoint.
+- Verify that records are not duplicated or omitted.
+
+Test E — ETag/version validation
+
+- Change the input after the initial execution starts.
+- Verify that the changed input is detected.
+- Verify that a concurrent overwrite cannot silently change the content being consumed where conditional reads are supported.
+
+Test F — Invalid numeric values
+
+Test alphabetic characters, empty values, whitespace, overflow, and other malformed values according to the field's business constraints.
+
+Use existing test conventions and mocks. If integration testing against ADLS is available, add an integration test that overwrites the same path and verifies the ETag and actual bytes read.
+
+8. Required deliverables
+
+Before changing code, report:
+
+1. The runtime execution path from the start/restart endpoint to the reader.
+2. The current reader/resource lifecycle.
+3. The actual mechanism that explains Scenario A and Scenario B.
+4. Evidence supporting the root cause, distinguishing facts from hypotheses.
+
+Then provide:
+
+5. A concise root-cause summary.
+6. The smallest safe production code fix.
+7. Exact file names and code changes.
+8. Any necessary configuration changes.
+9. Regression tests for both scenarios.
+10. A brief explanation of how restart semantics, chunk checkpoints, and output idempotency are preserved.
+
+Run the relevant tests and report actual results. Do not claim tests passed if they were not executed.
+
+If the repository does not contain enough evidence to determine the cause, identify the missing evidence and add targeted instrumentation rather than inventing a root cause.
+
+Priority: Prove why Scenario A reads or accepts the wrong content while Scenario B succeeds. Fix the underlying defect without sacrificing reliable restart behavior.
